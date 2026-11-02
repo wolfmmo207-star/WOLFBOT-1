@@ -4,6 +4,19 @@ const config = require('../config/config');
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction, client) {
+    if (interaction.isButton() && interaction.customId.startsWith('dating:')) {
+      const command = client.commands.get('social');
+      if (!command?.handleButton) return;
+      try {
+        await command.handleButton(interaction, client);
+      } catch (err) {
+        console.error('❌ Lỗi khi xử lý nút ghép đôi:', err);
+        const reply = { content: '❌ Không thể xử lý lượt chọn này. Hãy thử lại.', ephemeral: true };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(reply).catch(() => {});
+        else await interaction.reply(reply).catch(() => {});
+      }
+      return;
+    }
     if (!interaction.isChatInputCommand()) return;
 
     const command = client.commands.get(interaction.commandName);

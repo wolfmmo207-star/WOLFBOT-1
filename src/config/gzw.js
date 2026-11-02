@@ -170,6 +170,9 @@ module.exports = {
   // Tính năng cộng đồng (giveaway / gợi ý / sinh nhật). Tên kênh có thể đổi; không có kênh thì dùng kênh hiện tại / kênh hệ thống.
   community: {
     suggestionChannelName: 'goi-y',
+    confessionChannelName: 'confession',
+    donationChannelName: 'donate',
+    feedbackChannelName: 'feedback',
     birthdayChannelName: 'sinh-nhat',
     maxWinners: 10,
     maxGiveawayDays: 30

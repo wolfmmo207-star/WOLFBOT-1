@@ -484,6 +484,67 @@ db.exec(`
     createdAt INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS dating_profiles (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    age INTEGER NOT NULL CHECK (age >= 18),
+    bio TEXT NOT NULL,
+    lookingFor TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS dating_swipes (
+    guildId TEXT NOT NULL,
+    fromUserId TEXT NOT NULL,
+    toUserId TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('like', 'pass')),
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, fromUserId, toUserId)
+  );
+  CREATE TABLE IF NOT EXISTS dating_matches (
+    guildId TEXT NOT NULL,
+    userA TEXT NOT NULL,
+    userB TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userA, userB),
+    CHECK (userA < userB)
+  );
+
+  CREATE TABLE IF NOT EXISTS donation_orders (
+    orderCode INTEGER PRIMARY KEY,
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount >= 2000),
+    paymentLinkId TEXT,
+    checkoutUrl TEXT,
+    status TEXT NOT NULL DEFAULT 'CREATING' CHECK (status IN ('CREATING', 'PENDING', 'PAID', 'FAILED')),
+    providerReference TEXT,
+    notificationStatus TEXT NOT NULL DEFAULT 'PENDING' CHECK (notificationStatus IN ('PENDING', 'SENDING', 'SENT')),
+    notificationMessageId TEXT,
+    createdAt INTEGER NOT NULL,
+    paidAt INTEGER,
+    notifiedAt INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_donation_notifications ON donation_orders (status, notificationStatus);
+  CREATE TABLE IF NOT EXISTS donation_settings (
+    guildId TEXT PRIMARY KEY,
+    donationChannelId TEXT NOT NULL,
+    feedbackChannelId TEXT NOT NULL,
+    panelMessageId TEXT,
+    updatedAt INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS donation_transactions (
+    txId TEXT PRIMARY KEY,
+    orderCode INTEGER,
+    transactionDate TEXT,
+    amountIn INTEGER NOT NULL,
+    content TEXT,
+    reference TEXT,
+    matchStatus TEXT NOT NULL,
+    receivedAt INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS reaction_roles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guildId TEXT NOT NULL,

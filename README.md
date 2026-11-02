@@ -98,6 +98,20 @@ Viết lại bằng SQLite theo kiến trúc của bot này (không dùng MongoD
 - `/birthday set|remove|upcoming` — chỉ lưu ngày/tháng (không lưu năm), bot chúc mừng mỗi ngày theo giờ UTC+7.
 Tên kênh gợi ý/sinh nhật chỉnh ở `community` trong `src/config/gzw.js`.
 
+## Ghép đôi, confession và donate
+
+- `/social profile` tạo hồ sơ tự nguyện; chỉ dành cho người tự xác nhận từ 18 tuổi. `/social discover` hiển thị hồ sơ đã bật và các nút thích/bỏ qua. Chỉ khi hai bên cùng thích, bot mới gửi thông báo ghép đôi qua DM.
+- `/social pause` ẩn hồ sơ. `/social erase` xoá hồ sơ, lượt quẹt và kết nối của bạn khỏi server này.
+- `/social confession` đăng nội dung ẩn danh vào kênh `confession`; bot không lưu Discord ID người gửi. `/social feedback` gửi feedback có tên vào kênh `feedback`.
+- Tạo hai kênh trên hoặc đổi tên trong `community` ở `src/config/gzw.js`. Tin nhắn confession/feedback không cho phép mention người dùng.
+- Quản trị chạy `/donate-setup` để bot tự tạo `#donate` và `#feedback` nếu chưa có, lưu cấu hình kênh và đăng bảng hướng dẫn cố định. Có thể chọn hai kênh text có sẵn thay cho tạo mới. Bot cần quyền `Manage Channels`, `View Channel`, `Send Messages` và `Embed Links`.
+- Thành viên chạy `/donate so-tien`; QR có mã và số tiền riêng được đăng công khai trong `#donate` (nếu chạy ở kênh khác, bot trả lời riêng và đăng QR vào `#donate`). Chuyển đúng số tiền và giữ nguyên nội dung trên QR.
+- Bot polling SePay theo chu kỳ, đối soát mã chuyển khoản và số tiền, lưu giao dịch trong SQLite rồi thông báo vào kênh feedback đã chọn.
+- Cấu hình `SEPAY_API_TOKEN`, `SEPAY_ACCOUNT_NO`, `SEPAY_BANK_ID`, `SEPAY_ACCOUNT_NAME`, `SEPAY_POLL_INTERVAL_MS` và `SEPAY_LOOKBACK_DAYS` trong `.env`. Không cần webhook hay mở cổng HTTP công khai. Giữ kín API token SePay.
+- Giao dịch SePay được khử trùng lặp theo transaction ID; đơn đã thanh toán nhưng chưa thông báo sẽ được thử gửi lại sau khi bot khởi động. Không cần tạo kênh thủ công hay mở cổng HTTP công khai.
+
+Chạy `npm run deploy` để đăng ký các lệnh mới.
+
 ## Ghi chú quan trọng
 
 Bot này **không** và **sẽ không** bao gồm chức năng phát/stream phim, video có bản quyền trong kênh voice — vì đây là hành vi vi phạm bản quyền ở quy mô lớn. Module nhạc chỉ nên dùng với nội dung audio hợp pháp.

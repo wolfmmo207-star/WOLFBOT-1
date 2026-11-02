@@ -3,6 +3,7 @@ const config = require('./config/config');
 const loadCommands = require('./handlers/loadCommands');
 const loadEvents = require('./handlers/loadEvents');
 const initPlayer = require('./handlers/initPlayer');
+const startSePayPolling = require('./services/sepay').startSePayPolling;
 
 if (!config.token) {
   console.error('❌ Thiếu DISCORD_TOKEN trong file .env. Hãy copy .env.example thành .env và điền token bot.');
@@ -27,6 +28,7 @@ client.cooldowns = new Collection();
 loadCommands(client);
 loadEvents(client);
 initPlayer(client);
+startSePayPolling(client);
 
 process.on('unhandledRejection', err => {
   console.error('⚠️  Unhandled promise rejection:', err);
