@@ -124,6 +124,8 @@ function reconcileTransaction(tx, client, prefix) {
   if (!txId || !Number.isSafeInteger(amountIn) || amountIn <= 0) return null;
 
   const orderCode = extractOrderCode(tx, prefix);
+  if (!orderCode) return { ignored: true, reason: 'no_donation_code' };
+
   const content = String(tx.transaction_content || '').slice(0, 500);
   const transactionDate = String(tx.transaction_date || '').slice(0, 50);
   const reference = String(tx.reference_number || '').slice(0, 120);
