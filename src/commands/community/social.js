@@ -11,8 +11,10 @@ const intents = [
 ];
 const intentLabels = Object.fromEntries(intents.map((item) => [item.value, item.name]));
 
-function communityChannel(guild, channelName) {
-  return guild.channels.cache.find((channel) => channel.name === channelName && channel.isTextBased());
+async function configuredChannel(guild, channelId) {
+  if (!channelId) return null;
+  const channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
+  return channel?.isTextBased() ? channel : null;
 }
 
 function profileCard(profile, user) {
@@ -90,6 +92,13 @@ module.exports = {
     }
 
     if (subcommand === 'discover') {
+      const settings = db.prepare('SELECT tinderChannelId FROM social_settings WHERE guildId = ?').get(guildId);
+      if (!settings) return interaction.reply({ content: 'Quản trị viên cần chạy `/setup social` trước.', ephemeral: true });
+      if (interaction.channelId !== settings.tinderChannelId) {
+        const tinderChannel = await configuredChannel(interaction.guild, settings.tinderChannelId);
+        const destination = tinderChannel ? `<#${settings.tinderChannelId}>` : 'kênh Tinder đã cấu hình';
+        return interaction.reply({ content: `Hãy dùng lệnh khám phá trong ${destination}.`, ephemeral: true });
+      }
       const ownProfile = db.prepare('SELECT enabled FROM dating_profiles WHERE guildId = ? AND userId = ? AND age >= 18').get(guildId, userId);
       if (!ownProfile?.enabled) return interaction.reply({ content: 'Hãy tạo hoặc bật hồ sơ bằng `/social profile` trước khi khám phá.', ephemeral: true });
       return interaction.reply({ ...(await browsePayload(interaction, client)), ephemeral: true });
@@ -113,7 +122,15 @@ module.exports = {
     if (subcommand === 'confession' || subcommand === 'feedback') {
       const isConfession = subcommand === 'confession';
       const channelName = isConfession ? gzw.community.confessionChannelName : gzw.community.feedbackChannelName;
-      const channel = communityChannel(interaction.guild, channelName);
+      const settings = isConfession
+        ? db.prepare('SELECT confessionChannelId FROM social_settings WHERE guildId = ?').get(guildId)
+        : null;
+      if (isConfession && !settings) {
+        return interaction.reply({ content: 'Quản trị viên cần chạy `/setup social` trước khi nhận confession.', ephemeral: true });
+      }
+      const channel = isConfession
+        ? await configuredChannel(interaction.guild, settings.confessionChannelId)
+        : interaction.guild.channels.cache.find((item) => item.name === channelName && item.isTextBased());
       if (!channel) return interaction.reply({ content: `Chưa tìm thấy kênh #${channelName}. Hãy tạo kênh này hoặc chỉnh cấu hình cộng đồng.`, ephemeral: true });
 
       const content = interaction.options.getString('noi-dung');

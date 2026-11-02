@@ -15,7 +15,7 @@ module.exports = {
   async execute(interaction) {
     const settings = db.prepare('SELECT donationChannelId FROM donation_settings WHERE guildId = ?').get(interaction.guild.id);
     if (!settings) {
-      return interaction.reply({ content: 'Quản trị viên cần chạy `/donate-setup` trước để tạo kênh donate và feedback.', ephemeral: true });
+      return interaction.reply({ content: 'Quản trị viên cần chạy `/setup donate` trước để cấu hình kênh donate và feedback.', ephemeral: true });
     }
 
     const inDonationChannel = interaction.channelId === settings.donationChannelId;
@@ -39,7 +39,7 @@ module.exports = {
       if (inDonationChannel) return interaction.editReply(payload);
 
       const channel = await interaction.guild.channels.fetch(settings.donationChannelId).catch(() => null);
-      if (!channel?.isTextBased()) return interaction.editReply({ content: 'Kênh donate không còn khả dụng. Hãy yêu cầu quản trị viên chạy lại `/donate-setup`.' });
+      if (!channel?.isTextBased()) return interaction.editReply({ content: 'Kênh donate không còn khả dụng. Hãy yêu cầu quản trị viên chạy lại `/setup donate`.' });
       await channel.send(payload);
       return interaction.editReply({ content: `✅ QR đơn **${order.transferContent}** đã được đăng tại ${channel}.` });
     } catch (error) {

@@ -510,6 +510,12 @@ db.exec(`
     PRIMARY KEY (guildId, userA, userB),
     CHECK (userA < userB)
   );
+  CREATE TABLE IF NOT EXISTS social_settings (
+    guildId TEXT PRIMARY KEY,
+    confessionChannelId TEXT NOT NULL,
+    tinderChannelId TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS donation_orders (
     orderCode INTEGER PRIMARY KEY,
