@@ -100,7 +100,8 @@ Tên kênh gợi ý/sinh nhật chỉnh ở `community` trong `src/config/gzw.js
 
 ## Ghép đôi, confession và donate
 
-- `/social profile` tạo hồ sơ tự nguyện; chỉ dành cho người tự xác nhận từ 18 tuổi. `/social discover` hiển thị hồ sơ đã bật và các nút thích/bỏ qua. Chỉ khi hai bên cùng thích, bot mới gửi thông báo ghép đôi qua DM.
+- `/social profile` tạo hồ sơ tự nguyện; chỉ dành cho người tự xác nhận từ 18 tuổi. `/social discover` hiển thị profile card có ảnh và nút hoàn tác/bỏ qua/siêu thích/thích. Chỉ khi hai bên cùng thích, bot mới gửi thông báo ghép đôi và nút mở chat riêng. Nút chat chỉ hoạt động với match hợp lệ và tạo private thread có đúng hai thành viên; `/social chat-close` đóng thread. Discord bot không thể mở DM trực tiếp giữa hai tài khoản người dùng. Thêm `so-thich` dạng danh sách phân cách bằng dấu phẩy để `/social soulmate` tìm hồ sơ có nhiều sở thích chung nhất.
+- `/social talk queue chu-de:<chủ đề>` ghép hai người cùng opt-in vào private thread trong kênh Tinder; `/social talk leave` rời hàng chờ hoặc kết thúc phiên. Cần cấp bot quyền tạo/quản lý private thread và gửi tin trong thread.
 - `/social pause` ẩn hồ sơ. `/social erase` xoá hồ sơ, lượt quẹt và kết nối của bạn khỏi server này.
 - Quản trị chọn hai kênh đã tạo bằng `/setup social kenh-confession:<kênh> kenh-tinder:<kênh>`. Confession được gửi vào kênh đã chọn; `/social discover` chỉ chạy trong kênh Tinder.
 - `/social confession` đăng nội dung ẩn danh vào kênh `confession`; bot không lưu Discord ID người gửi. `/social feedback` gửi feedback có tên vào kênh `feedback`.
@@ -112,6 +113,18 @@ Tên kênh gợi ý/sinh nhật chỉnh ở `community` trong `src/config/gzw.js
 - Giao dịch SePay được khử trùng lặp theo transaction ID; đơn đã thanh toán nhưng chưa thông báo sẽ được thử gửi lại sau khi bot khởi động. Không cần tạo kênh thủ công hay mở cổng HTTP công khai.
 
 Chạy `npm run deploy` để đăng ký các lệnh mới.
+
+## Connection và DIS AI
+
+- `/connect admirer send` gửi lời khen ẩn danh (tối đa 3/ngày); người nhận dùng `/connect admirer inbox` và `/connect admirer reply` để phản hồi mà không thấy người gửi.
+- `/connect quest join` ghép nhóm 3 người tự nguyện, mở private thread và đưa ra 5 câu hỏi làm quen. Dùng `/connect quest finish` trong thread để đóng.
+- `/connect club create|list|join|leave` quản lý DIS Clubs theo chủ đề; mỗi club có public thread trong kênh Tinder.
+- `/connect constellation` tổng hợp các cụm sở thích từ hồ sơ Tinder đang bật; chỉ hiển thị người đã tự chia sẻ sở thích.
+- `/connect capsule create|list|cancel` niêm phong thư gửi sau 1 tháng, 6 tháng hoặc 1 năm; thư riêng được gửi qua DM, thư cộng đồng được đăng lại tại kênh đang dùng lệnh.
+- `/ai personality` là quiz vui, không chẩn đoán. `/ai topic nguoi-match:<user>` tạo câu hỏi trò chuyện cho hai người đã match; nếu không cấu hình AI thì dùng câu hỏi mẫu theo sở thích chung.
+- `/ai avatar phong-cach:<màu>` đổi màu Tinder card. Đây là tuỳ chỉnh giao diện hồ sơ, không tạo ảnh mới.
+- `/ai assistant cau-hoi:<câu hỏi>` cần cấu hình `AI_API_KEY`, `AI_API_URL`, `AI_MODEL` trong `.env` bằng một API tương thích OpenAI. Không gửi API key qua chat; khi chưa cấu hình, lệnh assistant sẽ báo chưa sẵn sàng.
+- Friendship Quest, chat match và Random Talk cần quyền `Create Private Threads`, `Manage Threads` và `Send Messages in Threads`; DIS Clubs cần `Create Public Threads`, `Manage Threads` và `Send Messages in Threads`.
 
 ## Ghi chú quan trọng
 

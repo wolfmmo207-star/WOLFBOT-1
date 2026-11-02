@@ -11,7 +11,7 @@ module.exports = {
         await command.handleButton(interaction, client);
       } catch (err) {
         console.error('❌ Lỗi khi xử lý nút ghép đôi:', err);
-        const reply = { content: '❌ Không thể xử lý lượt chọn này. Hãy thử lại.', ephemeral: true };
+        const reply = { content: '❌ Không thể xử lý lượt chọn này. Hãy thử lại.', ephemeral: Boolean(interaction.guild) };
         if (interaction.replied || interaction.deferred) await interaction.followUp(reply).catch(() => {});
         else await interaction.reply(reply).catch(() => {});
       }

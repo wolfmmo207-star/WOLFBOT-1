@@ -489,6 +489,7 @@ db.exec(`
     userId TEXT NOT NULL,
     age INTEGER NOT NULL CHECK (age >= 18),
     bio TEXT NOT NULL,
+    interests TEXT NOT NULL DEFAULT '[]',
     lookingFor TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     updatedAt INTEGER NOT NULL,
@@ -502,6 +503,13 @@ db.exec(`
     createdAt INTEGER NOT NULL,
     PRIMARY KEY (guildId, fromUserId, toUserId)
   );
+  CREATE TABLE IF NOT EXISTS dating_superlikes (
+    guildId TEXT NOT NULL,
+    fromUserId TEXT NOT NULL,
+    toUserId TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, fromUserId, toUserId)
+  );
   CREATE TABLE IF NOT EXISTS dating_matches (
     guildId TEXT NOT NULL,
     userA TEXT NOT NULL,
@@ -510,6 +518,114 @@ db.exec(`
     PRIMARY KEY (guildId, userA, userB),
     CHECK (userA < userB)
   );
+  CREATE TABLE IF NOT EXISTS dating_match_chats (
+    guildId TEXT NOT NULL,
+    userA TEXT NOT NULL,
+    userB TEXT NOT NULL,
+    threadId TEXT,
+    status TEXT NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'active', 'failed', 'ended')),
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userA, userB),
+    CHECK (userA < userB)
+  );
+  CREATE TABLE IF NOT EXISTS secret_admirers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    senderId TEXT NOT NULL,
+    recipientId TEXT NOT NULL,
+    compliment TEXT NOT NULL,
+    reply TEXT,
+    status TEXT NOT NULL DEFAULT 'unread' CHECK (status IN ('unread', 'read', 'replied', 'hidden')),
+    createdAt INTEGER NOT NULL,
+    repliedAt INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_admirer_inbox ON secret_admirers (guildId, recipientId, status, createdAt);
+
+  CREATE TABLE IF NOT EXISTS community_clubs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    nameKey TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    description TEXT NOT NULL,
+    threadId TEXT,
+    createdBy TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    UNIQUE (guildId, nameKey)
+  );
+  CREATE TABLE IF NOT EXISTS community_club_members (
+    clubId INTEGER NOT NULL,
+    userId TEXT NOT NULL,
+    joinedAt INTEGER NOT NULL,
+    PRIMARY KEY (clubId, userId)
+  );
+
+  CREATE TABLE IF NOT EXISTS friendship_quest_queue (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    queuedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS friendship_quest_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    threadId TEXT,
+    status TEXT NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'active', 'ended', 'failed')),
+    createdAt INTEGER NOT NULL,
+    endedAt INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS friendship_quest_members (
+    sessionId INTEGER NOT NULL,
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    PRIMARY KEY (sessionId, userId)
+  );
+  CREATE INDEX IF NOT EXISTS idx_friendship_active_user ON friendship_quest_members (guildId, userId, sessionId);
+
+  CREATE TABLE IF NOT EXISTS time_capsules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    audience TEXT NOT NULL CHECK (audience IN ('self', 'community')),
+    channelId TEXT,
+    content TEXT NOT NULL,
+    deliverAt INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'delivering', 'sent', 'cancelled', 'failed')),
+    createdAt INTEGER NOT NULL,
+    deliveredAt INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_time_capsule_due ON time_capsules (status, deliverAt);
+
+  CREATE TABLE IF NOT EXISTS social_avatar_styles (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    style TEXT NOT NULL DEFAULT 'teal',
+    updatedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS random_talk_queue (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    topic TEXT NOT NULL DEFAULT 'random',
+    queuedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS random_talk_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    userA TEXT NOT NULL,
+    userB TEXT NOT NULL,
+    threadId TEXT,
+    topic TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'active', 'ended', 'failed')),
+    createdAt INTEGER NOT NULL,
+    endedAt INTEGER
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_random_talk_active_a
+    ON random_talk_sessions (guildId, userA) WHERE status IN ('creating', 'active');
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_random_talk_active_b
+    ON random_talk_sessions (guildId, userB) WHERE status IN ('creating', 'active');
   CREATE TABLE IF NOT EXISTS social_settings (
     guildId TEXT PRIMARY KEY,
     confessionChannelId TEXT NOT NULL,
@@ -569,6 +685,31 @@ db.exec(`
     PRIMARY KEY (guildId, userId)
   );
 `);
+
+const datingProfileCols = db.prepare('PRAGMA table_info(dating_profiles)').all().map((column) => column.name);
+if (!datingProfileCols.includes('interests')) db.exec("ALTER TABLE dating_profiles ADD COLUMN interests TEXT NOT NULL DEFAULT '[]'");
+const clubCols = db.prepare('PRAGMA table_info(community_clubs)').all().map((column) => column.name);
+if (!clubCols.includes('threadId')) db.exec('ALTER TABLE community_clubs ADD COLUMN threadId TEXT');
+const matchChatsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dating_match_chats'").get()?.sql || '';
+if (matchChatsSchema && !matchChatsSchema.includes("'ended'")) {
+  db.transaction(() => {
+    db.exec('ALTER TABLE dating_match_chats RENAME TO dating_match_chats_legacy');
+    db.exec(`CREATE TABLE dating_match_chats (
+      guildId TEXT NOT NULL,
+      userA TEXT NOT NULL,
+      userB TEXT NOT NULL,
+      threadId TEXT,
+      status TEXT NOT NULL DEFAULT 'creating' CHECK (status IN ('creating', 'active', 'failed', 'ended')),
+      createdAt INTEGER NOT NULL,
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (guildId, userA, userB),
+      CHECK (userA < userB)
+    )`);
+    db.exec(`INSERT INTO dating_match_chats (guildId, userA, userB, threadId, status, createdAt, updatedAt)
+      SELECT guildId, userA, userB, threadId, status, createdAt, updatedAt FROM dating_match_chats_legacy`);
+    db.exec('DROP TABLE dating_match_chats_legacy');
+  })();
+}
 
 // ===== Migration: boost_events (v10) =====
 const boostCols = db.prepare('PRAGMA table_info(boost_events)').all().map((c) => c.name);
