@@ -10,6 +10,7 @@ const intents = [
   { name: 'Cả hai', value: 'both' }
 ];
 const intentLabels = Object.fromEntries(intents.map((item) => [item.value, item.name]));
+const genderLabels = { male: 'Nam', female: 'Nữ', nonbinary: 'Phi nhị nguyên/LGBT', private: 'Không muốn hiển thị' };
 const talkTopics = [
   { name: 'Ngẫu nhiên', value: 'random' },
   { name: 'Game', value: 'games' },
@@ -44,19 +45,24 @@ async function configuredChannel(guild, channelId) {
 }
 
 function profileCard(profile, user, sharedInterests = [], superliked = false, avatarStyle = 'teal') {
+  const displayName = profile.displayName || user.username;
   const embed = new EmbedBuilder()
     .setColor(avatarStyleColors[avatarStyle] || gzw.brandColor)
-    .setTitle(`🐺 ${user.username}`)
+    .setTitle(`🐺 ${displayName}`)
     .setDescription(profile.bio)
     .addFields(
       { name: 'Tuổi', value: String(profile.age), inline: true },
+      { name: 'Giới tính', value: genderLabels[profile.gender] || genderLabels.private, inline: true },
       { name: 'Đang tìm', value: intentLabels[profile.lookingFor], inline: true }
     );
+  if (profile.hometown) embed.addFields({ name: 'Quê quán', value: profile.hometown, inline: true });
   const interests = storedInterests(profile);
   if (interests.length) embed.addFields({ name: 'Sở thích', value: interests.join(' · ') });
   if (sharedInterests.length) embed.addFields({ name: 'Sở thích chung', value: sharedInterests.join(', ') });
   if (superliked) embed.addFields({ name: '✨ Tín hiệu đặc biệt', value: 'Người này đã siêu thích bạn.' });
-  if (user.displayAvatarURL) embed.setImage(user.displayAvatarURL({ size: 512 }));
+  embed.setFooter({ text: `Discord: @${user.username}` });
+  if (profile.photoUrl) embed.setImage(profile.photoUrl);
+  else if (user.displayAvatarURL) embed.setImage(user.displayAvatarURL({ size: 512 }));
   return embed;
 }
 
@@ -222,118 +228,65 @@ async function browsePayload(interaction, client, soulmate = false) {
   return { embeds: [profileCard(profile, user, soulmateResult?.shared, superliked, avatarStyle)], components: [row] };
 }
 
-function queueRandomTalk(guildId, userId, topic) {
-  const cutoff = Date.now() - 15 * 60 * 1000;
+function queueDatingPair(guildId, userId, gender, seekingGender) {
+  const now = Date.now();
   return db.transaction(() => {
-    db.prepare('DELETE FROM random_talk_queue WHERE queuedAt < ?').run(cutoff);
-    const staleSessions = db.prepare(`SELECT * FROM random_talk_sessions
-      WHERE guildId = ? AND status = 'creating' AND createdAt < ?`).all(guildId, Date.now() - 5 * 60 * 1000);
-    for (const stale of staleSessions) {
-      db.prepare("UPDATE random_talk_sessions SET status = 'failed', endedAt = ? WHERE id = ? AND status = 'creating'").run(Date.now(), stale.id);
-      const restore = db.prepare('INSERT OR IGNORE INTO random_talk_queue (guildId, userId, topic, queuedAt) VALUES (?, ?, ?, ?)');
-      restore.run(guildId, stale.userA, stale.topic, Date.now());
-      restore.run(guildId, stale.userB, stale.topic, Date.now());
-    }
-    const active = db.prepare(`SELECT id FROM random_talk_sessions
-      WHERE guildId = ? AND status IN ('creating', 'active') AND (userA = ? OR userB = ?)`).get(guildId, userId, userId);
-    if (active) return { state: 'active' };
+    db.prepare('DELETE FROM dating_match_queue WHERE guildId = ? AND queuedAt < ?').run(guildId, now - 30 * 60000);
+    const queued = db.prepare('SELECT * FROM dating_match_queue WHERE guildId = ? AND userId = ?').get(guildId, userId);
+    if (queued) return { state: 'queued' };
 
-    const candidate = db.prepare(`SELECT q.* FROM random_talk_queue q
+    db.prepare(`INSERT INTO dating_match_queue (guildId, userId, gender, seekingGender, queuedAt)
+      VALUES (?, ?, ?, ?, ?)`)
+      .run(guildId, userId, gender, seekingGender, now);
+    const candidate = db.prepare(`SELECT q.* FROM dating_match_queue q
       JOIN dating_profiles p ON p.guildId = q.guildId AND p.userId = q.userId AND p.enabled = 1 AND p.age >= 18
-      WHERE q.guildId = ? AND q.userId != ? AND (q.topic = 'random' OR ? = 'random' OR q.topic = ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM random_talk_sessions s
-          WHERE s.guildId = q.guildId AND s.status IN ('creating', 'active') AND (s.userA = q.userId OR s.userB = q.userId)
-        )
-      ORDER BY q.queuedAt LIMIT 1`).get(guildId, userId, topic, topic);
-    if (!candidate) {
-      db.prepare(`INSERT INTO random_talk_queue (guildId, userId, topic, queuedAt) VALUES (?, ?, ?, ?)
-        ON CONFLICT (guildId, userId) DO UPDATE SET topic = excluded.topic, queuedAt = excluded.queuedAt`)
-        .run(guildId, userId, topic, Date.now());
-      return { state: 'waiting' };
-    }
+      WHERE q.guildId = ? AND q.userId != ? AND q.gender = ? AND q.seekingGender = ?
+      ORDER BY q.queuedAt LIMIT 1`).get(guildId, userId, seekingGender, gender);
+    if (!candidate) return { state: 'queued' };
 
-    const [userA, userB] = [candidate.userId, userId].sort();
-    const effectiveTopic = topic === 'random' ? candidate.topic : topic;
-    const sessionId = db.prepare(`INSERT INTO random_talk_sessions (guildId, userA, userB, topic, status, createdAt)
-      VALUES (?, ?, ?, ?, 'creating', ?)`).run(guildId, userA, userB, effectiveTopic, Date.now()).lastInsertRowid;
-    db.prepare('DELETE FROM random_talk_queue WHERE guildId = ? AND userId IN (?, ?)').run(guildId, userA, userB);
-    return { state: 'paired', sessionId, userA, userB, topic: effectiveTopic };
+    db.prepare('DELETE FROM dating_match_queue WHERE guildId = ? AND userId IN (?, ?)').run(guildId, userId, candidate.userId);
+    const [userA, userB] = [userId, candidate.userId].sort();
+    db.prepare('INSERT OR IGNORE INTO dating_matches (guildId, userA, userB, createdAt) VALUES (?, ?, ?, ?)')
+      .run(guildId, userA, userB, now);
+    return { state: 'matched', otherUserId: candidate.userId };
   })();
 }
 
-function restoreTalkQueue(session) {
-  db.transaction(() => {
-    db.prepare("UPDATE random_talk_sessions SET status = 'failed', endedAt = ? WHERE id = ? AND status = 'creating'").run(Date.now(), session.sessionId);
-    const insert = db.prepare('INSERT OR IGNORE INTO random_talk_queue (guildId, userId, topic, queuedAt) VALUES (?, ?, ?, ?)');
-    insert.run(session.guildId, session.userA, session.topic, Date.now());
-    insert.run(session.guildId, session.userB, session.topic, Date.now());
-  })();
-}
-
-async function joinRandomTalk(interaction, client) {
-  const guildId = interaction.guild.id;
+async function handleDatingQueueButton(interaction, client, choice) {
+  const guildId = interaction.guild?.id;
   const userId = interaction.user.id;
-  const profile = db.prepare('SELECT enabled FROM dating_profiles WHERE guildId = ? AND userId = ? AND age >= 18').get(guildId, userId);
-  if (!profile?.enabled) return interaction.reply({ content: 'Tạo hồ sơ 18+ bằng `/social profile` và bật hồ sơ trước khi vào Random Talk.', ephemeral: true });
+  if (choice === 'cancel') {
+    const removed = db.prepare('DELETE FROM dating_match_queue WHERE guildId = ? AND userId = ?').run(guildId, userId).changes;
+    return interaction.reply({ content: removed ? '✅ Đã hủy tìm người.' : 'Bạn hiện không ở trong hàng chờ.', ephemeral: true });
+  }
+  if (choice !== 'male' && choice !== 'female') return interaction.reply({ content: 'Lựa chọn giới tính không hợp lệ.', ephemeral: true });
 
-  const settings = db.prepare('SELECT tinderChannelId FROM social_settings WHERE guildId = ?').get(guildId);
+  const settings = db.prepare('SELECT * FROM social_settings WHERE guildId = ?').get(guildId);
   if (!settings) return interaction.reply({ content: 'Quản trị viên cần chạy `/setup social` trước.', ephemeral: true });
-  if (interaction.channelId !== settings.tinderChannelId) {
-    return interaction.reply({ content: `Hãy vào <#${settings.tinderChannelId}> để tham gia Random Talk.`, ephemeral: true });
+  if (interaction.channelId !== settings.tinderChannelId) return interaction.reply({ content: `Hãy dùng bảng ghép đôi trong <#${settings.tinderChannelId}>.`, ephemeral: true });
+
+  const profile = db.prepare('SELECT * FROM dating_profiles WHERE guildId = ? AND userId = ? AND enabled = 1 AND age >= 18').get(guildId, userId);
+  if (!profile) return interaction.reply({ content: 'Tạo và bật profile 18+ bằng `/social profile` trước khi tìm người.', ephemeral: true });
+  const detected = memberGender(interaction, settings, profile);
+  if (detected.error) return interaction.reply({ content: detected.error, ephemeral: true });
+  const expected = detected.gender === 'male' ? 'female' : 'male';
+  if (choice !== expected) return interaction.reply({ content: `Để ghép khác giới, profile/role của bạn là ${genderLabels[detected.gender]}; hãy bấm **Tìm ${expected === 'female' ? 'nữ' : 'nam'}**.`, ephemeral: true });
+
+  const result = queueDatingPair(guildId, userId, detected.gender, choice);
+  if (result.state === 'queued') return interaction.reply({ content: `🔎 Đã vào hàng chờ tìm ${choice === 'female' ? 'nữ' : 'nam'}. Bot sẽ ghép khi có người phù hợp đang tìm bạn. Bấm **Hủy tìm** để rời hàng chờ.`, ephemeral: true });
+
+  const chatReply = await openMatchedChat(interaction, client, guildId, result.otherUserId);
+  const [userA, userB] = [userId, result.otherUserId].sort();
+  const chat = db.prepare('SELECT threadId, status FROM dating_match_chats WHERE guildId = ? AND userA = ? AND userB = ?').get(guildId, userA, userB);
+  const other = await client.users.fetch(result.otherUserId).catch(() => null);
+  if (chat?.status === 'active' && chat.threadId && other) {
+    await other.send({
+      content: `💞 Bạn đã được ghép với một người phù hợp. Mở private chat trong server: <#${chat.threadId}>`,
+      components: [new ActionRowBuilder().addComponents(chatLinkButton(guildId, chat.threadId))],
+      allowedMentions: { parse: [] }
+    }).catch(() => {});
   }
-
-  const topic = interaction.options.getString('chu-de') || 'random';
-  const result = queueRandomTalk(guildId, userId, topic);
-  if (result.state === 'active') return interaction.reply({ content: 'Bạn đang có một cuộc trò chuyện Random Talk. Dùng `/social talk leave` để kết thúc.', ephemeral: true });
-  if (result.state === 'waiting') return interaction.reply({ content: 'Đã vào hàng chờ. Khi có người cùng chọn chủ đề, bot sẽ mở private thread cho hai bạn.', ephemeral: true });
-
-  const session = { ...result, guildId };
-  const channel = await configuredChannel(interaction.guild, settings.tinderChannelId);
-  let thread;
-  try {
-    if (!channel?.threads) throw new Error('Kênh Tinder không hỗ trợ thread');
-    thread = await channel.threads.create({
-      name: `random-talk-${String(result.sessionId).slice(-6)}`,
-      type: ChannelType.PrivateThread,
-      autoArchiveDuration: 60,
-      invitable: false,
-      reason: 'Ghép Random Talk có sự đồng ý của hai thành viên'
-    });
-    await thread.members.add(result.userA);
-    await thread.members.add(result.userB);
-    const topicLabel = talkTopicLabels[result.topic] || 'Ngẫu nhiên';
-    await thread.send({ content: `👋 Hai bạn đã cùng đồng ý tham gia Random Talk. Chủ đề: **${topicLabel}**. Một trong hai có thể dùng \/social talk leave để kết thúc.`, allowedMentions: { parse: [] } });
-    const activated = db.prepare(`UPDATE random_talk_sessions SET threadId = ?, status = 'active'
-      WHERE id = ? AND status = 'creating'`).run(thread.id, result.sessionId).changes;
-    if (!activated) throw new Error('Phiên trò chuyện đã bị huỷ');
-    const otherUserId = result.userA === userId ? result.userB : result.userA;
-    const otherUser = await client.users.fetch(otherUserId).catch(() => null);
-    await otherUser?.send(`💬 Bạn đã được ghép Random Talk theo chủ đề ${topicLabel}. Vào private thread trong kênh Tinder: <#${thread.id}>`).catch(() => {});
-    return interaction.reply({ content: `✅ Đã ghép với <@${otherUserId}>. Cuộc trò chuyện riêng: ${thread}`, ephemeral: true, allowedMentions: { users: [otherUserId] } });
-  } catch (error) {
-    if (thread) await thread.delete('Không thể hoàn tất ghép Random Talk').catch(() => {});
-    restoreTalkQueue(session);
-    console.error('❌ Không thể tạo private thread Random Talk:', error.message);
-    return interaction.reply({ content: 'Không tạo được cuộc trò chuyện riêng. Bot cần quyền **Create Private Threads**, **Manage Threads** và **Send Messages in Threads**. Hai bạn đã được đưa lại vào hàng chờ.', ephemeral: true });
-  }
-}
-
-async function leaveRandomTalk(interaction, client) {
-  const guildId = interaction.guild.id;
-  const userId = interaction.user.id;
-  const removed = db.prepare('DELETE FROM random_talk_queue WHERE guildId = ? AND userId = ?').run(guildId, userId).changes;
-  const session = db.prepare(`SELECT * FROM random_talk_sessions
-    WHERE guildId = ? AND status = 'active' AND (userA = ? OR userB = ?)`).get(guildId, userId, userId);
-  if (!session) return interaction.reply({ content: removed ? '✅ Đã rời hàng chờ Random Talk.' : 'Bạn chưa ở hàng chờ hoặc trong cuộc trò chuyện Random Talk nào.', ephemeral: true });
-
-  db.prepare("UPDATE random_talk_sessions SET status = 'ended', endedAt = ? WHERE id = ? AND status = 'active'").run(Date.now(), session.id);
-  const thread = await client.channels.fetch(session.threadId).catch(() => null);
-  if (thread?.isThread()) {
-    await thread.send({ content: 'Cuộc trò chuyện đã kết thúc theo yêu cầu của một thành viên.', allowedMentions: { parse: [] } }).catch(() => {});
-    await thread.setArchived(true).catch(() => {});
-  }
-  return interaction.reply({ content: '✅ Đã kết thúc Random Talk và đóng private thread.', ephemeral: true });
+  return chatReply;
 }
 
 async function closeMatchedChat(interaction) {
@@ -360,14 +313,21 @@ module.exports = {
       .addStringOption((o) => o.setName('gioi-thieu').setDescription('Giới thiệu ngắn').setRequired(true).setMinLength(10).setMaxLength(300))
       .addStringOption((o) => o.setName('tim-kiem').setDescription('Bạn đang tìm kiếm điều gì?').setRequired(true)
         .addChoices(...intents))
-      .addStringOption((o) => o.setName('so-thich').setDescription('Sở thích, phân cách bằng dấu phẩy (tối đa 10)').setMaxLength(200)))
+      .addStringOption((o) => o.setName('so-thich').setDescription('Sở thích, phân cách bằng dấu phẩy (tối đa 10)').setMaxLength(200))
+      .addStringOption((o) => o.setName('ten-hien-thi').setDescription('Tên hiển thị trên hồ sơ').setMaxLength(40))
+      .addStringOption((o) => o.setName('gioi-tinh').setDescription('Tùy chọn hiển thị giới tính')
+        .addChoices(
+          { name: 'Nam', value: 'male' },
+          { name: 'Nữ', value: 'female' },
+          { name: 'Phi nhị nguyên/LGBT', value: 'nonbinary' },
+          { name: 'Không muốn hiển thị', value: 'private' }
+        ))
+      .addStringOption((o) => o.setName('que-quan').setDescription('Quê quán (tùy chọn)').setMaxLength(60))
+      .addAttachmentOption((o) => o.setName('anh').setDescription('Ảnh hồ sơ JPG, PNG, GIF hoặc WebP, tối đa 8 MB'))
+      .addBooleanOption((o) => o.setName('xoa-anh').setDescription('Xóa ảnh hồ sơ đã lưu')))
     .addSubcommand((s) => s.setName('discover').setDescription('Xem hồ sơ và chọn thích hoặc bỏ qua'))
     .addSubcommand((s) => s.setName('soulmate').setDescription('Tìm hồ sơ có nhiều sở thích chung nhất'))
     .addSubcommand((s) => s.setName('chat-close').setDescription('Đóng chat riêng sau khi match'))
-    .addSubcommandGroup((g) => g.setName('talk').setDescription('Ghép nói chuyện ngẫu nhiên có đồng ý')
-      .addSubcommand((s) => s.setName('queue').setDescription('Vào hàng chờ nói chuyện riêng')
-        .addStringOption((o) => o.setName('chu-de').setDescription('Ghép theo chủ đề').addChoices(...talkTopics)))
-      .addSubcommand((s) => s.setName('leave').setDescription('Rời hàng chờ hoặc kết thúc cuộc nói chuyện')))
     .addSubcommand((s) => s.setName('pause').setDescription('Tạm ẩn hồ sơ ghép đôi'))
     .addSubcommand((s) => s.setName('erase').setDescription('Xoá hồ sơ, lượt quẹt và kết nối ghép đôi'))
     .addSubcommand((s) => s.setName('confession').setDescription('Gửi confession ẩn danh')
@@ -385,12 +345,23 @@ module.exports = {
       const bio = interaction.options.getString('gioi-thieu');
       const lookingFor = interaction.options.getString('tim-kiem');
       const interests = JSON.stringify(parseInterests(interaction.options.getString('so-thich')));
-      db.prepare(`INSERT INTO dating_profiles (guildId, userId, age, bio, interests, lookingFor, enabled, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+      const existing = db.prepare('SELECT * FROM dating_profiles WHERE guildId = ? AND userId = ?').get(guildId, userId);
+      const image = interaction.options.getAttachment('anh');
+      if (image && (!/^image\/(jpeg|png|gif|webp)$/.test(image.contentType || '') || image.size > 8 * 1024 * 1024)) {
+        return interaction.reply({ content: 'Ảnh phải là JPG, PNG, GIF hoặc WebP và không quá 8 MB.', ephemeral: true });
+      }
+      const photoUrl = image?.url || (interaction.options.getBoolean('xoa-anh') ? null : existing?.photoUrl || null);
+      const displayName = interaction.options.getString('ten-hien-thi')?.trim() || existing?.displayName || interaction.user.username;
+      const gender = interaction.options.getString('gioi-tinh') || existing?.gender || 'private';
+      const hometown = interaction.options.getString('que-quan')?.trim() || existing?.hometown || '';
+      db.prepare(`INSERT INTO dating_profiles (guildId, userId, age, bio, interests, displayName, gender, hometown, photoUrl, lookingFor, enabled, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
         ON CONFLICT (guildId, userId) DO UPDATE SET
-          age = excluded.age, bio = excluded.bio, interests = excluded.interests, lookingFor = excluded.lookingFor,
-          enabled = 1, updatedAt = excluded.updatedAt`).run(guildId, userId, age, bio, interests, lookingFor, Date.now());
-      return interaction.reply({ content: '✅ Hồ sơ đã bật. Hồ sơ chỉ hiển thị trong server này; sở thích giúp tìm soulmate tương đồng. Tuổi từ 18 trở lên dựa trên xác nhận của bạn.', ephemeral: true });
+          age = excluded.age, bio = excluded.bio, interests = excluded.interests, displayName = excluded.displayName,
+          gender = excluded.gender, hometown = excluded.hometown, photoUrl = excluded.photoUrl,
+          lookingFor = excluded.lookingFor, enabled = 1, updatedAt = excluded.updatedAt`)
+        .run(guildId, userId, age, bio, interests, displayName, gender, hometown, photoUrl, lookingFor, Date.now());
+      return interaction.reply({ content: '✅ Hồ sơ đã cập nhật. Tên, giới tính, quê quán và ảnh là tùy chọn; tuổi từ 18 trở lên dựa trên xác nhận của bạn.', ephemeral: true });
     }
 
     if (subcommand === 'discover') {
@@ -416,11 +387,6 @@ module.exports = {
     }
 
     if (subcommand === 'chat-close') return closeMatchedChat(interaction);
-
-    if (interaction.options.getSubcommandGroup() === 'talk') {
-      if (interaction.options.getSubcommand() === 'queue') return joinRandomTalk(interaction, client);
-      return leaveRandomTalk(interaction, client);
-    }
 
     if (subcommand === 'pause') {
       const changed = db.prepare('UPDATE dating_profiles SET enabled = 0, updatedAt = ? WHERE guildId = ? AND userId = ?').run(Date.now(), guildId, userId).changes;
@@ -467,6 +433,7 @@ module.exports = {
 
   async handleButton(interaction, client) {
     const [, action, targetId] = interaction.customId.split(':');
+    if (action === 'queue') return handleDatingQueueButton(interaction, client, targetId);
     if (action === 'chat') {
       const [, , guildId, otherUserId] = interaction.customId.split(':');
       if (!/^\d{17,20}$/.test(guildId) || !/^\d{17,20}$/.test(otherUserId) || otherUserId === interaction.user.id) {

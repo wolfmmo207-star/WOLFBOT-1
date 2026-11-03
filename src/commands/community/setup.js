@@ -1,8 +1,10 @@
 const {
-  SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder
+  SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle
 } = require('discord.js');
 const db = require('../../database/db');
 const gzw = require('../../config/gzw');
+const { postSetupPanel } = require('../../services/werewolf');
+const { postRandomTalkPanel } = require('../../services/randomTalk');
 
 async function getOrCreateDonationChannel(interaction, selected, name, topic) {
   if (selected) return selected;
@@ -70,16 +72,73 @@ async function setupDonation(interaction) {
 async function setupSocial(interaction) {
   const confessionChannel = interaction.options.getChannel('kenh-confession');
   const tinderChannel = interaction.options.getChannel('kenh-tinder');
-  db.prepare(`INSERT INTO social_settings (guildId, confessionChannelId, tinderChannelId, updatedAt)
-    VALUES (?, ?, ?, ?)
+  const maleRole = interaction.options.getRole('role-nam');
+  const femaleRole = interaction.options.getRole('role-nu');
+  if (Boolean(maleRole) !== Boolean(femaleRole)) {
+    return interaction.reply({ content: 'Hãy chọn cả role nam và role nữ, hoặc bỏ trống cả hai để dùng giới tính trong hồ sơ.', ephemeral: true });
+  }
+  if (maleRole && maleRole.id === femaleRole.id) {
+    return interaction.reply({ content: 'Role nam và role nữ phải khác nhau.', ephemeral: true });
+  }
+  db.prepare(`INSERT INTO social_settings (guildId, confessionChannelId, tinderChannelId, maleRoleId, femaleRoleId, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT (guildId) DO UPDATE SET confessionChannelId = excluded.confessionChannelId,
-      tinderChannelId = excluded.tinderChannelId, updatedAt = excluded.updatedAt`)
-    .run(interaction.guild.id, confessionChannel.id, tinderChannel.id, Date.now());
+      tinderChannelId = excluded.tinderChannelId, maleRoleId = excluded.maleRoleId,
+      femaleRoleId = excluded.femaleRoleId, updatedAt = excluded.updatedAt`)
+    .run(interaction.guild.id, confessionChannel.id, tinderChannel.id, maleRole?.id || null, femaleRole?.id || null, Date.now());
+
+  const embed = new EmbedBuilder()
+    .setColor(gzw.brandColor)
+    .setTitle('💞 Tìm người trò chuyện')
+    .setDescription('Bấm nút tìm nam hoặc nữ. Bot chỉ ghép khi hai người chọn tìm nhau; khi ghép thành công sẽ mở private thread cho hai bạn. Bấm **Hủy tìm** để rời hàng chờ.')
+    .setFooter({ text: maleRole ? 'Giới tính được xác định theo role server.' : 'Hãy tạo profile và chọn giới tính trước khi tìm.' });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('dating:queue:female').setLabel('Tìm nữ').setEmoji('👩').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('dating:queue:male').setLabel('Tìm nam').setEmoji('👨').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('dating:queue:cancel').setLabel('Hủy tìm').setEmoji('⏹️').setStyle(ButtonStyle.Secondary)
+  );
+  const settings = db.prepare('SELECT tinderPanelMessageId FROM social_settings WHERE guildId = ?').get(interaction.guild.id);
+  const oldPanel = settings?.tinderPanelMessageId
+    ? await tinderChannel.messages.fetch(settings.tinderPanelMessageId).catch(() => null)
+    : null;
+  const panel = oldPanel
+    ? await oldPanel.edit({ embeds: [embed], components: [row] })
+    : await tinderChannel.send({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+  db.prepare('UPDATE social_settings SET tinderPanelMessageId = ?, updatedAt = ? WHERE guildId = ?')
+    .run(panel.id, Date.now(), interaction.guild.id);
 
   return interaction.reply({
-    content: `✅ Đã lưu kênh confession: ${confessionChannel}\n✅ Đã lưu kênh Tinder: ${tinderChannel}`,
+    content: `✅ Đã lưu kênh confession: ${confessionChannel}\n✅ Đã đăng bảng ghép đôi tại ${tinderChannel}${maleRole ? `\nRole nam: ${maleRole} · role nữ: ${femaleRole}` : '\nDùng giới tính trong profile để ghép.'}`,
     ephemeral: true
   });
+}
+
+async function setupAutoDown(interaction) {
+  const channel = interaction.options.getChannel('kenh');
+  db.prepare(`INSERT INTO autodown_settings (guildId, channelId, enabled, updatedAt)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT (guildId) DO UPDATE SET channelId = excluded.channelId, updatedAt = excluded.updatedAt`)
+    .run(interaction.guild.id, channel.id, Date.now());
+  return interaction.reply({ content: `✅ AutoDown chỉ xử lý link trong ${channel}. Dùng [0m/autodown status để xem nền tảng đang bật.`, ephemeral: true });
+}
+
+async function setupWerewolf(interaction) {
+  const channel = interaction.options.getChannel('kenh');
+  db.prepare(`INSERT INTO werewolf_settings (guildId, channelId, updatedAt) VALUES (?, ?, ?)
+    ON CONFLICT (guildId) DO UPDATE SET channelId = excluded.channelId, updatedAt = excluded.updatedAt`)
+    .run(interaction.guild.id, channel.id, Date.now());
+
+  const panel = await postSetupPanel(interaction.guild, channel);
+  return interaction.reply({ content: `✅ Đã cấu hình bảng Ma Sói tại ${channel}.`, ephemeral: true });
+}
+
+async function setupRandomTalk(interaction) {
+  const channel = interaction.options.getChannel('kenh');
+  db.prepare(`INSERT INTO random_talk_settings (guildId, channelId, updatedAt) VALUES (?, ?, ?)
+    ON CONFLICT (guildId) DO UPDATE SET channelId = excluded.channelId, updatedAt = excluded.updatedAt`)
+    .run(interaction.guild.id, channel.id, Date.now());
+  await postRandomTalkPanel(interaction.guild, channel);
+  return interaction.reply({ content: `✅ Đã cấu hình Random Talk tại ${channel}. Tinder vẫn ở channel riêng đã chọn trong /setup social.`, ephemeral: true });
 }
 
 module.exports = {
@@ -95,10 +154,22 @@ module.exports = {
       .addChannelOption((o) => o.setName('kenh-feedback').setDescription('Chọn kênh feedback có sẵn').addChannelTypes(ChannelType.GuildText)))
     .addSubcommand((s) => s.setName('social').setDescription('Gán kênh confession và Tinder đã tạo')
       .addChannelOption((o) => o.setName('kenh-confession').setDescription('Kênh đăng confession ẩn danh').setRequired(true).addChannelTypes(ChannelType.GuildText))
-      .addChannelOption((o) => o.setName('kenh-tinder').setDescription('Kênh dùng lệnh khám phá hồ sơ').setRequired(true).addChannelTypes(ChannelType.GuildText))),
+      .addChannelOption((o) => o.setName('kenh-tinder').setDescription('Kênh Tinder và bảng ghép đôi').setRequired(true).addChannelTypes(ChannelType.GuildText))
+      .addRoleOption((o) => o.setName('role-nam').setDescription('Role giới tính nam (tùy chọn)'))
+      .addRoleOption((o) => o.setName('role-nu').setDescription('Role giới tính nữ (tùy chọn')))
+    .addSubcommand((s) => s.setName('autodown').setDescription('Chọn kênh tự động tải link')
+      .addChannelOption((o) => o.setName('kenh').setDescription('Kênh text xử lý link công khai').setRequired(true).addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((s) => s.setName('werewolf').setDescription('Đăng bảng tạo Ma Sói trong channel có sẵn')
+      .addChannelOption((o) => o.setName('kenh').setDescription('Kênh bảng Ma Sói').setRequired(true).addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand((s) => s.setName('random-talk').setDescription('Đăng bảng ghép nói chuyện ngẫu nhiên')
+      .addChannelOption((o) => o.setName('kenh').setDescription('Kênh Random Talk riêng').setRequired(true).addChannelTypes(ChannelType.GuildText))),
 
   async execute(interaction) {
-    if (interaction.options.getSubcommand() === 'donate') return setupDonation(interaction);
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === 'donate') return setupDonation(interaction);
+    if (subcommand === 'autodown') return setupAutoDown(interaction);
+    if (subcommand === 'werewolf') return setupWerewolf(interaction);
+    if (subcommand === 'random-talk') return setupRandomTalk(interaction);
     return setupSocial(interaction);
   }
 };

@@ -5,6 +5,7 @@ const { startBirthdayScheduler } = require('../services/birthdays');
 const { runChecks, format } = require('../services/serverCheck');
 const { logToStaff } = require('../services/modTools');
 const { startTimeCapsuleScheduler } = require('../services/timeCapsules');
+const { startVoiceHeartbeat } = require('../database/activity');
 
 module.exports = {
   name: 'clientReady',
@@ -16,6 +17,7 @@ module.exports = {
     giveaways.startScheduler(client);
     startBirthdayScheduler(client);
     startTimeCapsuleScheduler(client);
+    startVoiceHeartbeat(client);
     // Kiểm tra cấu hình khi khởi động (không chặn bot nếu lỗi)
     for (const guild of client.guilds.cache.values()) {
       try {

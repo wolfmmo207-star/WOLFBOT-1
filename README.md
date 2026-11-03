@@ -34,14 +34,15 @@ Nếu có `GUILD_ID` trong `.env`, lệnh được đăng ký riêng cho server 
 
 - **Quản trị**: `/kick`, `/ban`, `/unban`, `/timeout`, `/clear`, `/warn`, `/warnings`, auto-mod (chặn spam tin nhắn, mention hàng loạt, từ cấm tuỳ chỉnh trong `src/config/config.js`)
 - **Chào mừng & vai trò**: embed chào mừng/tạm biệt tự động khi vào kênh tên `welcome` (đổi tên kênh trong config), auto-role tuỳ chọn
-- **Level/XP**: cộng XP khi chat (có cooldown chống spam farm), `/rank`, `/leaderboard`
+- **Level/XP & hoạt động**: `/rank`, `/leaderboard loai:level|coin|chat|voice ky:all|day|week`; Chat/Voice hỗ trợ tổng, hôm nay và tuần này. Chat đếm tin nhắn trong server; Voice tính thời gian có mặt trong voice channel và lưu tổng qua restart.
+- **Ma Sói**: Quản trị chọn kênh và đăng bảng bằng `/setup werewolf kenh:<kênh>`. Từ bảng, host bấm **Tạo lobby**; mọi người dùng nút vào/rời/bắt đầu. Vai trò gửi riêng qua DM; kill/inspect/protect dùng menu DM, vote dùng menu trên bảng ngày. Phase tự chuyển khi đủ hành động, không cần lệnh chơi. Cần ít nhất 5 người và người chơi phải nhận được DM.
 - **Tiện ích**: `/ping`, `/help`, `/userinfo`, `/serverinfo`, `/poll`, `/remind`, hệ thống ticket hỗ trợ (`/ticket-setup` + nút bấm tạo/đóng kênh riêng)
 - **Thông báo sự kiện**: `/announce-event` — embed + nút bấm liên kết đến kênh voice, dùng cho sự kiện/stream hợp lệ của server (họp mặt, buổi nói chuyện, stream của chính server...)
 - **Nhạc**: `/play`, `/pause`, `/skip`, `/stop`, `/queue` — phát âm thanh trong kênh voice bằng `discord-player`. Chỉ dùng cho nhạc/âm thanh mà server có quyền sử dụng (nhạc không bản quyền, nhạc tự sản xuất, nguồn radio hợp pháp...).
 
 ## GZW CORE (giai đoạn 02: coin, nhiệm vụ, shop, thành tích)
 
-Lệnh mới (nhóm `GZW CORE`): `/balance`, `/daily`, `/hunt`, `/quests`, `/shop`, `/inventory`, `/profile`, `/achievements`, `/coin-history`, `/booster`, `/leaderboard loai:coin`. (Mini-game đổi tên từ `/play` thành `/hunt` vì trùng với lệnh nhạc.)
+Lệnh mới (nhóm `GZW CORE`): `/balance`, `/daily`, `/hunt`, `/quests`, `/shop`, `/inventory`, `/profile`, `/achievements`, `/coin-history`, `/booster`. `/leaderboard loai:level|coin|chat|voice` hiển thị top 10 trong server. (Mini-game đổi tên từ `/play` thành `/hunt` vì trùng với lệnh nhạc.)
 Lệnh quản trị (cần quyền Manage Server): `/coin-admin`, `/achievement-grant`.
 
 Cách hoạt động:
@@ -100,10 +101,11 @@ Tên kênh gợi ý/sinh nhật chỉnh ở `community` trong `src/config/gzw.js
 
 ## Ghép đôi, confession và donate
 
-- `/social profile` tạo hồ sơ tự nguyện; chỉ dành cho người tự xác nhận từ 18 tuổi. `/social discover` hiển thị profile card có ảnh và nút hoàn tác/bỏ qua/siêu thích/thích. Chỉ khi hai bên cùng thích, bot mới gửi thông báo ghép đôi và nút mở chat riêng. Nút chat chỉ hoạt động với match hợp lệ và tạo private thread có đúng hai thành viên; `/social chat-close` đóng thread. Discord bot không thể mở DM trực tiếp giữa hai tài khoản người dùng. Thêm `so-thich` dạng danh sách phân cách bằng dấu phẩy để `/social soulmate` tìm hồ sơ có nhiều sở thích chung nhất.
-- `/social talk queue chu-de:<chủ đề>` ghép hai người cùng opt-in vào private thread trong kênh Tinder; `/social talk leave` rời hàng chờ hoặc kết thúc phiên. Cần cấp bot quyền tạo/quản lý private thread và gửi tin trong thread.
+- `/social profile` tạo hồ sơ tự nguyện 18+, có tên hiển thị, giới tính, quê quán, sở thích và ảnh đính kèm tùy chọn. Ảnh nhận JPG/PNG/GIF/WebP tối đa 8 MB; có thể dùng `xoa-anh` để bỏ ảnh. `/social discover` hiển thị profile card và nút hoàn tác/bỏ qua/siêu thích/thích. Chỉ khi hai bên cùng thích, bot mới gửi thông báo ghép đôi và nút mở chat riêng. Nút chat chỉ hoạt động với match hợp lệ và tạo private thread có đúng hai thành viên; `/social chat-close` đóng thread. Thêm `so-thich` để `/social soulmate` tìm hồ sơ có sở thích tương đồng.
+- Random Talk tách hẳn khỏi Tinder: quản trị chạy `/setup random-talk kenh:<kênh>` để đăng panel ở channel riêng. Thành viên có profile 18+ chọn chủ đề rồi bấm **Tìm người**; `/social discover` chỉ dùng để vuốt Tinder profile. Random Talk cần quyền tạo/quản lý private thread và gửi tin trong thread.
 - `/social pause` ẩn hồ sơ. `/social erase` xoá hồ sơ, lượt quẹt và kết nối của bạn khỏi server này.
-- Quản trị chọn hai kênh đã tạo bằng `/setup social kenh-confession:<kênh> kenh-tinder:<kênh>`. Confession được gửi vào kênh đã chọn; `/social discover` chỉ chạy trong kênh Tinder.
+- Quản trị chọn hai kênh đã tạo bằng `/setup social kenh-confession:<kênh> kenh-tinder:<kênh>`; có thể thêm `role-nam:<role> role-nu:<role>` để bot nhận diện giới tính qua role server. Setup sẽ đăng bảng nút **Tìm nữ**, **Tìm nam**, **Hủy tìm** trong kênh Tinder.
+- Auto match chỉ ghép khi hai người đều có profile bật 18+, một bên nam/một bên nữ, và preference tìm kiếm của họ khớp nhau. Role được ưu tiên nếu đã cấu hình; nếu không, bot dùng giới tính trên profile. Khi ghép thành công, bot mở private thread và gửi link qua DM.
 - `/social confession` đăng nội dung ẩn danh vào kênh `confession`; bot không lưu Discord ID người gửi. `/social feedback` gửi feedback có tên vào kênh `feedback`.
 - Tạo hai kênh trên hoặc đổi tên trong `community` ở `src/config/gzw.js`. Tin nhắn confession/feedback không cho phép mention người dùng.
 - Quản trị chạy `/setup donate` để bot tự tạo `#donate` và `#feedback` nếu chưa có, lưu cấu hình kênh và đăng bảng hướng dẫn cố định. Có thể chọn hai kênh text có sẵn thay cho tạo mới. Bot cần quyền `Manage Channels`, `View Channel`, `Send Messages` và `Embed Links`.
@@ -125,6 +127,12 @@ Chạy `npm run deploy` để đăng ký các lệnh mới.
 - `/ai avatar phong-cach:<màu>` đổi màu Tinder card. Đây là tuỳ chỉnh giao diện hồ sơ, không tạo ảnh mới.
 - `/ai assistant cau-hoi:<câu hỏi>` cần cấu hình `AI_API_KEY`, `AI_API_URL`, `AI_MODEL` trong `.env` bằng một API tương thích OpenAI. Không gửi API key qua chat; khi chưa cấu hình, lệnh assistant sẽ báo chưa sẵn sàng.
 - Friendship Quest, chat match và Random Talk cần quyền `Create Private Threads`, `Manage Threads` và `Send Messages in Threads`; DIS Clubs cần `Create Public Threads`, `Manage Threads` và `Send Messages in Threads`.
+
+## AutoDown
+
+- Quản trị chọn kênh bằng `/setup autodown kenh:#media`, xem cấu hình bằng `/autodown status`, bật/tắt toàn bộ bằng `/autodown enabled`, hoặc chỉnh từng nền tảng bằng `/autodown toggle`.
+- AutoDown chỉ đọc link trong channel đã cấu hình, bỏ qua bot và giới hạn file 8 MB. TikTok có adapter mặc định; SoundCloud, Douyin, Facebook và YouTube cần aggregator HTTPS cấu hình qua `AUTODOWN_API_URL` (tuỳ chọn `AUTODOWN_API_KEY` gửi bằng Bearer header). Nền tảng ngoài TikTok mặc định tắt.
+- Chỉ dùng để tải media công khai mà bạn sở hữu hoặc có quyền tải; bot không truy cập nội dung private, không bỏ DRM và không vượt qua đăng nhập/paywall. API key phải nằm trong `.env`, không dùng key hard-code từ snippet.
 
 ## Ghi chú quan trọng
 

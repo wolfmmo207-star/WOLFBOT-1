@@ -17,6 +17,82 @@ db.exec(`
     lastMessageAt INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guildId, userId)
   );
+  CREATE TABLE IF NOT EXISTS chat_activity (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    messageCount INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS chat_activity_periods (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    periodType TEXT NOT NULL CHECK (periodType IN ('day', 'week')),
+    periodKey TEXT NOT NULL,
+    messageCount INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guildId, userId, periodType, periodKey)
+  );
+  CREATE TABLE IF NOT EXISTS voice_totals (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    totalMs INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS voice_activity_periods (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    periodType TEXT NOT NULL CHECK (periodType IN ('day', 'week')),
+    periodKey TEXT NOT NULL,
+    totalMs INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guildId, userId, periodType, periodKey)
+  );
+  CREATE TABLE IF NOT EXISTS voice_sessions (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    channelId TEXT NOT NULL,
+    joinedAt INTEGER NOT NULL,
+    lastHeartbeatAt INTEGER NOT NULL,
+    periodizedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS werewolf_games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT NOT NULL,
+    channelId TEXT NOT NULL,
+    hostId TEXT NOT NULL,
+    lobbyMessageId TEXT,
+    phase TEXT NOT NULL DEFAULT 'lobby' CHECK (phase IN ('lobby', 'night', 'day', 'finished')),
+    status TEXT NOT NULL DEFAULT 'lobby' CHECK (status IN ('lobby', 'active', 'finished', 'cancelled')),
+    round INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    startedAt INTEGER,
+    updatedAt INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_werewolf_active_channel
+    ON werewolf_games (guildId, channelId) WHERE status IN ('lobby', 'active');
+  CREATE TABLE IF NOT EXISTS werewolf_players (
+    gameId INTEGER NOT NULL,
+    userId TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'pending',
+    alive INTEGER NOT NULL DEFAULT 1,
+    joinedAt INTEGER NOT NULL,
+    PRIMARY KEY (gameId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS werewolf_actions (
+    gameId INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('night', 'day')),
+    userId TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('kill', 'inspect', 'protect', 'vote')),
+    targetId TEXT NOT NULL,
+    createdAt INTEGER NOT NULL,
+    PRIMARY KEY (gameId, round, phase, userId)
+  );
+  CREATE TABLE IF NOT EXISTS werewolf_settings (
+    guildId TEXT PRIMARY KEY,
+    channelId TEXT NOT NULL,
+    panelMessageId TEXT,
+    updatedAt INTEGER NOT NULL
+  );
 
   CREATE TABLE IF NOT EXISTS warnings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -490,6 +566,10 @@ db.exec(`
     age INTEGER NOT NULL CHECK (age >= 18),
     bio TEXT NOT NULL,
     interests TEXT NOT NULL DEFAULT '[]',
+    displayName TEXT NOT NULL DEFAULT '',
+    gender TEXT NOT NULL DEFAULT 'private',
+    hometown TEXT NOT NULL DEFAULT '',
+    photoUrl TEXT,
     lookingFor TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     updatedAt INTEGER NOT NULL,
@@ -528,6 +608,14 @@ db.exec(`
     updatedAt INTEGER NOT NULL,
     PRIMARY KEY (guildId, userA, userB),
     CHECK (userA < userB)
+  );
+  CREATE TABLE IF NOT EXISTS dating_match_queue (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    gender TEXT NOT NULL CHECK (gender IN ('male', 'female')),
+    seekingGender TEXT NOT NULL CHECK (seekingGender IN ('male', 'female')),
+    queuedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
   );
   CREATE TABLE IF NOT EXISTS secret_admirers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -604,11 +692,29 @@ db.exec(`
     updatedAt INTEGER NOT NULL,
     PRIMARY KEY (guildId, userId)
   );
+  CREATE TABLE IF NOT EXISTS autodown_settings (
+    guildId TEXT PRIMARY KEY,
+    channelId TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    tiktokEnabled INTEGER NOT NULL DEFAULT 1,
+    soundcloudEnabled INTEGER NOT NULL DEFAULT 0,
+    douyinEnabled INTEGER NOT NULL DEFAULT 0,
+    facebookEnabled INTEGER NOT NULL DEFAULT 0,
+    youtubeEnabled INTEGER NOT NULL DEFAULT 0,
+    updatedAt INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS random_talk_queue (
     guildId TEXT NOT NULL,
     userId TEXT NOT NULL,
     topic TEXT NOT NULL DEFAULT 'random',
     queuedAt INTEGER NOT NULL,
+    PRIMARY KEY (guildId, userId)
+  );
+  CREATE TABLE IF NOT EXISTS random_talk_preferences (
+    guildId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    topic TEXT NOT NULL DEFAULT 'random',
+    updatedAt INTEGER NOT NULL,
     PRIMARY KEY (guildId, userId)
   );
   CREATE TABLE IF NOT EXISTS random_talk_sessions (
@@ -626,10 +732,19 @@ db.exec(`
     ON random_talk_sessions (guildId, userA) WHERE status IN ('creating', 'active');
   CREATE UNIQUE INDEX IF NOT EXISTS idx_random_talk_active_b
     ON random_talk_sessions (guildId, userB) WHERE status IN ('creating', 'active');
+  CREATE TABLE IF NOT EXISTS random_talk_settings (
+    guildId TEXT PRIMARY KEY,
+    channelId TEXT NOT NULL,
+    panelMessageId TEXT,
+    updatedAt INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS social_settings (
     guildId TEXT PRIMARY KEY,
     confessionChannelId TEXT NOT NULL,
     tinderChannelId TEXT NOT NULL,
+    maleRoleId TEXT,
+    femaleRoleId TEXT,
+    tinderPanelMessageId TEXT,
     updatedAt INTEGER NOT NULL
   );
 
@@ -688,8 +803,23 @@ db.exec(`
 
 const datingProfileCols = db.prepare('PRAGMA table_info(dating_profiles)').all().map((column) => column.name);
 if (!datingProfileCols.includes('interests')) db.exec("ALTER TABLE dating_profiles ADD COLUMN interests TEXT NOT NULL DEFAULT '[]'");
+if (!datingProfileCols.includes('displayName')) db.exec("ALTER TABLE dating_profiles ADD COLUMN displayName TEXT NOT NULL DEFAULT ''");
+if (!datingProfileCols.includes('gender')) db.exec("ALTER TABLE dating_profiles ADD COLUMN gender TEXT NOT NULL DEFAULT 'private'");
+if (!datingProfileCols.includes('hometown')) db.exec("ALTER TABLE dating_profiles ADD COLUMN hometown TEXT NOT NULL DEFAULT ''");
+if (!datingProfileCols.includes('photoUrl')) db.exec('ALTER TABLE dating_profiles ADD COLUMN photoUrl TEXT');
+const voiceSessionCols = db.prepare('PRAGMA table_info(voice_sessions)').all().map((column) => column.name);
+if (!voiceSessionCols.includes('periodizedAt')) {
+  db.exec('ALTER TABLE voice_sessions ADD COLUMN periodizedAt INTEGER NOT NULL DEFAULT 0');
+  db.exec('UPDATE voice_sessions SET periodizedAt = joinedAt WHERE periodizedAt = 0');
+}
+const werewolfGameCols = db.prepare('PRAGMA table_info(werewolf_games)').all().map((column) => column.name);
+if (!werewolfGameCols.includes('lobbyMessageId')) db.exec('ALTER TABLE werewolf_games ADD COLUMN lobbyMessageId TEXT');
 const clubCols = db.prepare('PRAGMA table_info(community_clubs)').all().map((column) => column.name);
 if (!clubCols.includes('threadId')) db.exec('ALTER TABLE community_clubs ADD COLUMN threadId TEXT');
+const socialSettingsCols = db.prepare('PRAGMA table_info(social_settings)').all().map((column) => column.name);
+if (!socialSettingsCols.includes('maleRoleId')) db.exec('ALTER TABLE social_settings ADD COLUMN maleRoleId TEXT');
+if (!socialSettingsCols.includes('femaleRoleId')) db.exec('ALTER TABLE social_settings ADD COLUMN femaleRoleId TEXT');
+if (!socialSettingsCols.includes('tinderPanelMessageId')) db.exec('ALTER TABLE social_settings ADD COLUMN tinderPanelMessageId TEXT');
 const matchChatsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'dating_match_chats'").get()?.sql || '';
 if (matchChatsSchema && !matchChatsSchema.includes("'ended'")) {
   db.transaction(() => {

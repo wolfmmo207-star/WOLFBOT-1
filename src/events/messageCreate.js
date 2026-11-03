@@ -6,6 +6,8 @@ const { checkAutoAchievements, flashNotice } = require('../services/gzwCore');
 const gzw = require('../config/gzw');
 const guard = require('../services/guard');
 const { isInviteLink } = require('../services/guardRules');
+const { recordChat } = require('../database/activity');
+const { handleMessage: handleAutoDown } = require('../services/autoDownload');
 
 // Theo dõi spam đơn giản trong bộ nhớ: Map<userId, number[]> (timestamps)
 const messageLog = new Map();
@@ -37,6 +39,9 @@ module.exports = {
         if (kind) return guard.violation(message, kind);
       }
     }
+
+    recordChat(message.guild.id, message.author.id);
+    handleAutoDown(message).catch((error) => console.error('❌ AutoDown handler:', error.message));
 
     // ---- Leveling / XP ----
     if (config.leveling.enabled && canGainXp(message.guild.id, message.author.id, config.leveling.cooldownSeconds)) {

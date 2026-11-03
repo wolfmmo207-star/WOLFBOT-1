@@ -4,6 +4,28 @@ const config = require('../config/config');
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction, client) {
+    if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('randomtalk:')) {
+      try {
+        await require('../services/randomTalk').handleInteraction(interaction, client);
+      } catch (err) {
+        console.error('❌ Lỗi khi xử lý Random Talk:', err);
+        const reply = { content: 'Không thể xử lý Random Talk. Hãy thử lại.', ephemeral: Boolean(interaction.guild) };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(reply).catch(() => {});
+        else await interaction.reply(reply).catch(() => {});
+      }
+      return;
+    }
+    if ((interaction.isButton() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('werewolf:')) {
+      try {
+        await require('../services/werewolf').handleInteraction(interaction, client);
+      } catch (err) {
+        console.error('❌ Lỗi khi xử lý thành phần Ma Sói:', err);
+        const reply = { content: 'Không thể xử lý hành động Ma Sói. Hãy thử lại.', ephemeral: Boolean(interaction.guild) };
+        if (interaction.replied || interaction.deferred) await interaction.followUp(reply).catch(() => {});
+        else await interaction.reply(reply).catch(() => {});
+      }
+      return;
+    }
     if (interaction.isButton() && interaction.customId.startsWith('dating:')) {
       const command = client.commands.get('social');
       if (!command?.handleButton) return;
